@@ -30,6 +30,7 @@ app.use("/api/users", userRoutes);
 app.use("/api/chat", chatRoutes); 
 app.use("/api/cart", cartRoutes);
 app.use("/api/groups", groupRoutes);
+app.use('/uploads/invoices', express.static('uploads/invoices'));
 
 // Test route
 app.get("/", (req, res) => res.send("Server running"));

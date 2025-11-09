@@ -1,13 +1,20 @@
 import Message from '../models/messageModel.js';
+import Group from '../models/groupModel.js';
+import User from '../models/userModel.js';
+import jwt from 'jsonwebtoken';
 
-/**
- * Send a message to a group (real-time + DB)
- */
 export const sendMessage = async (groupId, userId, text, io) => {
   try {
+    // Save message first
     const msg = await Message.create({ groupId, sender: userId, text });
-    io.to(groupId).emit('newMessage', msg); // broadcast to all group members
-    return msg;
+
+    // Populate sender so frontend can access msg.sender.name
+    const populatedMsg = await msg.populate('sender', 'name _id');
+
+    // Broadcast populated message to all group members
+    io.to(groupId).emit('newMessage', populatedMsg);
+
+    return populatedMsg;
   } catch (err) {
     console.error('Error sending message:', err.message);
     throw err;
@@ -97,6 +104,14 @@ export const initChat = (io) => {
 
         socket.join(groupId);
         console.log(`User ${socket.userId} joined group ${groupId}`);
+
+        // Emit last 50 messages to the user
+        const recentMessages = await Message.find({ groupId })
+          .sort({ createdAt: 1 })
+          .limit(50)
+          .populate('sender', 'name _id');
+
+        socket.emit('recentMessages', recentMessages);
       } catch (err) {
         console.error(err);
         socket.emit('errorMessage', 'Failed to join group');
@@ -116,7 +131,8 @@ export const initChat = (io) => {
 
         // Save and broadcast message
         const msg = await Message.create({ groupId, sender: socket.userId, text });
-        io.to(groupId).emit('newMessage', msg);
+        const populatedMsg = await msg.populate('sender', 'name _id');
+        io.to(groupId).emit('newMessage', populatedMsg);
       } catch (err) {
         console.error(err);
         socket.emit('errorMessage', 'Failed to send message');
@@ -125,12 +141,17 @@ export const initChat = (io) => {
 
     // Typing indicator
     socket.on('typing', async ({ groupId }) => {
-      const group = await Group.findById(groupId);
-      if (!group) return;
+      try {
+        const group = await Group.findById(groupId);
+        if (!group) return;
 
-      if (!group.members.includes(socket.userId) && group.admin.toString() !== socket.userId) return;
+        if (!group.members.includes(socket.userId) && group.admin.toString() !== socket.userId) return;
 
-      socket.to(groupId).emit('userTyping', { userId: socket.userId });
+        const user = await User.findById(socket.userId);
+        socket.to(groupId).emit('userTyping', { userId: user.name });
+      } catch (err) {
+        console.error(err);
+      }
     });
 
     socket.on('disconnect', () => {

@@ -1,6 +1,38 @@
 import mongoose from 'mongoose';
 import Cart from '../models/cartModel.js';
 import Group from '../models/groupModel.js';
+import multer from 'multer';
+import path from 'path';
+import fs from 'fs';
+import { extractPdfText } from '../helpers/pdfHelpers.js';
+import { parseInvoiceWithGroqLlama } from '../helpers/llamaHelpers.js';
+
+
+// ---------- Multer setup for invoice uploads ----------
+const storage = multer.diskStorage({
+  destination: function (req, file, cb) {
+    const dir = './uploads/invoices';
+    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+    cb(null, dir);
+  },
+  filename: function (req, file, cb) {
+    const ext = path.extname(file.originalname);
+    cb(null, `invoice_${Date.now()}${ext}`);
+  }
+});
+
+export const uploadInvoice = multer({ storage }).single('invoice');
+
+// ---------- Helper ----------
+const getGroupObjectId = (groupId) => {
+  if (!mongoose.Types.ObjectId.isValid(groupId))
+    throw new Error('Invalid groupId');
+  return new mongoose.Types.ObjectId(groupId);
+};
+
+
+
+
 
 // Helper function to cast groupId string to ObjectId
 const getGroupIdObjectId = (groupId) => {
@@ -83,13 +115,13 @@ export const removeItemFromCart = async (req, res) => {
     }
 };
 
-// 3. View cart (The primary endpoint being debugged)
+// 3. View cart 
 export const viewCart = async (req, res) => {
     try {
         const { groupId } = req.params;
         const userId = req.user._id;
         
-        // --- FIX: Ensure groupId is an ObjectId for the query ---
+        
         const groupIdObjectId = getGroupIdObjectId(groupId);
 
 
@@ -106,7 +138,7 @@ export const viewCart = async (req, res) => {
         if (!group.members.some(m => m.equals(userId)))
             return res.status(403).json({ message: 'You are not a member of this group' });
 
-        res.json(cart);
+        res.json({ cart, admin: group.admin.toString() });
     } catch (err) {
         console.error("viewCart error:", err.message);
         res.status(500).json({ message: 'Server error', error: err.message });
@@ -115,36 +147,54 @@ export const viewCart = async (req, res) => {
 
 // 4. Checkout cart (admin only)
 export const checkoutCart = async (req, res) => {
-    try {
-        const { groupId } = req.body;
-        const userId = req.user._id;
+  try {
+    const { groupId } = req.body;
+    const userId = req.user._id;
+    const groupIdObj = getGroupObjectId(groupId);
 
-        // --- FIX: Ensure groupId is an ObjectId for all queries/saves ---
-        const groupIdObjectId = getGroupIdObjectId(groupId);
+    const group = await Group.findById(groupIdObj);
+    if (!group) return res.status(404).json({ message: 'Group not found' });
 
-        const group = await Group.findById(groupIdObjectId);
-        if (!group) return res.status(404).json({ message: 'Group not found' });
+    if (!group.admin.equals(userId))
+      return res.status(403).json({ message: 'Only admin can checkout' });
 
-        // Use .equals() for reliable ObjectId comparison
-        if (!group.admin.equals(userId))
-            return res.status(403).json({ message: 'Only admin can checkout' });
+    const now = new Date();
+    if (group.checkoutDeadline < now)
+      return res.status(400).json({ message: 'Cannot checkout, deadline passed' });
 
-        const now = new Date();
-        if (group.checkoutDeadline < now)
-            return res.status(400).json({ message: 'Cannot checkout, deadline passed' });
+    const cart = await Cart.findOne({ groupId: groupIdObj, status: 'active' });
+    if (!cart) return res.status(404).json({ message: 'Cart not found' });
 
-        const cart = await Cart.findOne({ groupId: groupIdObjectId, status: 'active' });
-        if (!cart) return res.status(404).json({ message: 'Cart not found' });
+    if (!req.file) return res.status(400).json({ message: 'Invoice file is required' });
 
-        cart.status = 'checkedout';
-        await cart.save();
+    const invoiceUrl = `${req.protocol}://${req.get('host')}/uploads/invoices/${req.file.filename}`;
+    group.invoiceUrl = invoiceUrl;
 
-        group.status = 'checkedout';
-        await group.save();
+    // Parse invoice using Llama API
+    const pdfText = await extractPdfText(req.file.path);
+    const invoiceItems = await parseInvoiceWithGroqLlama(pdfText);
 
-        res.json({ message: 'Order placed successfully', cart });
-    } catch (err) {
-        console.error("checkoutCart error:", err.message);
-        res.status(500).json({ message: 'Server error', error: err.message });
-    }
+    // Update cart prices based on invoice
+    cart.items = cart.items.map(cartItem => {
+      const matched = invoiceItems.find(
+        i => i.itemName.toLowerCase() === cartItem.itemName.toLowerCase()
+      );
+      if (matched) cartItem.price = matched.price; // overwrite price
+      return cartItem;
+    });
+
+    // Recompute total
+    cart.total = cart.items.reduce((sum, i) => sum + i.price * i.quantity, 0);
+    
+    cart.status = 'checkedout';
+    await cart.save();
+
+    group.status = 'checkedout';
+    await group.save();
+
+    res.json({ message: 'Order placed successfully', cart, invoiceUrl, invoiceItems });
+  } catch (err) {
+    console.error("checkoutCart error:", err.message);
+    res.status(500).json({ message: 'Server error', error: err.message });
+  }
 };

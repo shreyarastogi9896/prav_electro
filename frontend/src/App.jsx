@@ -7,6 +7,8 @@ import TrackingPage from './pages/TrackingPage';
 import NotFoundPage from './pages/NotFoundPage';
 import CartPage from './pages/CartPage';
 
+
+
 function App() {
     return (
         <Router>
@@ -17,6 +19,7 @@ function App() {
                     <Route path="/room/:groupId" element={<CartPage />} />
                     <Route path="/track/:id" element={<TrackingPage />} />
                     <Route path="*" element={<NotFoundPage />} />
+                    <Route path="/chat/:groupId" element={<ChatPage />} />
                 </Routes>
             </div>
         </Router>
