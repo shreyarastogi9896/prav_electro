@@ -5,6 +5,7 @@ import RoomPage from './pages/RoomPage';
 import ChatPage from './pages/ChatPage';
 import TrackingPage from './pages/TrackingPage';
 import NotFoundPage from './pages/NotFoundPage';
+import CartPage from './pages/CartPage';
 
 function App() {
     return (
@@ -13,7 +14,7 @@ function App() {
                 <Routes>
                     <Route path="/" element={<LoginPage />} />
                     <Route path="/rooms" element={<RoomPage />} />
-                    <Route path="/room/:id" element={<ChatPage />} />
+                    <Route path="/room/:groupId" element={<CartPage />} />
                     <Route path="/track/:id" element={<TrackingPage />} />
                     <Route path="*" element={<NotFoundPage />} />
                 </Routes>

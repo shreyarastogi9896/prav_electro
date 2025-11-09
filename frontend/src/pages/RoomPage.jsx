@@ -44,6 +44,7 @@ const RoomPage = () => {
       );
       alert("Joined group successfully!");
       navigate(`/room/${groupId}`);
+
     } catch (err) {
       console.error("Join error:", err);
       alert("Could not join group.");
