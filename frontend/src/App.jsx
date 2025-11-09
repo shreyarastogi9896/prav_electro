@@ -1,0 +1,25 @@
+import React from 'react';
+import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
+import LoginPage from './pages/LoginPage';
+import RoomPage from './pages/RoomPage';
+import ChatPage from './pages/ChatPage';
+import TrackingPage from './pages/TrackingPage';
+import NotFoundPage from './pages/NotFoundPage';
+
+function App() {
+    return (
+        <Router>
+            <div className="min-h-screen bg-gray-900 text-gray-100 font-sans">
+                <Routes>
+                    <Route path="/" element={<LoginPage />} />
+                    <Route path="/rooms" element={<RoomPage />} />
+                    <Route path="/room/:id" element={<ChatPage />} />
+                    <Route path="/track/:id" element={<TrackingPage />} />
+                    <Route path="*" element={<NotFoundPage />} />
+                </Routes>
+            </div>
+        </Router>
+    );
+}
+
+export default App;
