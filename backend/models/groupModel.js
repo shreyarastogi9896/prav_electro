@@ -9,11 +9,7 @@ const GroupSchema = new mongoose.Schema({
     zomatoLink: { type: String }
   },
   invoiceUrl: { type: String },
-  invoiceItems: [{
-  itemName: String,
-  price: Number
-}],
-
+  
   status: { type: String, default: 'active' }, // active / checkedout
   createdAt: { type: Date, default: Date.now },
   checkoutDeadline: Date                  // dynamic threshold for order

@@ -6,7 +6,7 @@ import path from 'path';
 import fs from 'fs';
 import { extractPdfText } from '../helpers/pdfHelpers.js';
 import { parseInvoiceWithGroqLlama } from '../helpers/llamaHelpers.js';
-
+import stringSimilarity from "string-similarity";
 
 // ---------- Multer setup for invoice uploads ----------
 const storage = multer.diskStorage({
@@ -148,6 +148,8 @@ export const viewCart = async (req, res) => {
 // 4. Checkout cart (admin only)
 export const checkoutCart = async (req, res) => {
   try {
+    if (!req.file) return res.status(400).json({ message: "Invoice file is required" });
+
     const { groupId } = req.body;
     const userId = req.user._id;
     const groupIdObj = getGroupObjectId(groupId);
@@ -158,41 +160,77 @@ export const checkoutCart = async (req, res) => {
     if (!group.admin.equals(userId))
       return res.status(403).json({ message: 'Only admin can checkout' });
 
-    const now = new Date();
-    if (group.checkoutDeadline < now)
+    if (group.checkoutDeadline < new Date())
       return res.status(400).json({ message: 'Cannot checkout, deadline passed' });
 
     const cart = await Cart.findOne({ groupId: groupIdObj, status: 'active' });
     if (!cart) return res.status(404).json({ message: 'Cart not found' });
 
-    if (!req.file) return res.status(400).json({ message: 'Invoice file is required' });
-
     const invoiceUrl = `${req.protocol}://${req.get('host')}/uploads/invoices/${req.file.filename}`;
     group.invoiceUrl = invoiceUrl;
 
-    // Parse invoice using Llama API
+    // Parse invoice
     const pdfText = await extractPdfText(req.file.path);
     const invoiceItems = await parseInvoiceWithGroqLlama(pdfText);
 
-    // Update cart prices based on invoice
+    // Update cart items based on invoice using fuzzy matching
     cart.items = cart.items.map(cartItem => {
-      const matched = invoiceItems.find(
-        i => i.itemName.toLowerCase() === cartItem.itemName.toLowerCase()
-      );
-      if (matched) cartItem.price = matched.price; // overwrite price
+      let bestMatch = null;
+      let highestScore = 0;
+
+      invoiceItems.forEach(invItem => {
+        const score = stringSimilarity.compareTwoStrings(
+          cartItem.itemName.trim().toLowerCase(),
+          invItem.itemName.trim().toLowerCase()
+        );
+        if (score > highestScore) {
+          highestScore = score;
+          bestMatch = invItem;
+        }
+      });
+
+      if (bestMatch && highestScore >= 0.6) {
+        cartItem.price = bestMatch.price; // update price from invoice
+      }
+
       return cartItem;
     });
 
-    // Recompute total
+    // Compute cart total
     cart.total = cart.items.reduce((sum, i) => sum + i.price * i.quantity, 0);
-    
+
+    // Organize items per user
+    const usersData = {};
+    cart.items.forEach(item => {
+      const uid = item.userId.toString();
+      if (!usersData[uid]) usersData[uid] = { items: [], total: 0 };
+      usersData[uid].items.push({
+        itemName: item.itemName,
+        price: item.price,
+        quantity: item.quantity,
+        subtotal: item.price * item.quantity,
+        image: item.image
+      });
+      usersData[uid].total += item.price * item.quantity;
+    });
+
     cart.status = 'checkedout';
     await cart.save();
 
     group.status = 'checkedout';
     await group.save();
 
-    res.json({ message: 'Order placed successfully', cart, invoiceUrl, invoiceItems });
+    // Prepare frontend-friendly response
+    const frontendResponse = {
+      message: 'Order placed successfully',
+      cartTotal: cart.total,
+      invoiceUrl,
+      users: usersData,
+      invoiceItems
+    };
+
+    res.json(frontendResponse);
+
   } catch (err) {
     console.error("checkoutCart error:", err.message);
     res.status(500).json({ message: 'Server error', error: err.message });

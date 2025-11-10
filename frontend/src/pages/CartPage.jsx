@@ -103,6 +103,12 @@ const CartPage = () => {
       console.log("Checkout successful!");
       setCart(res.data.cart); // update cart with invoice link & status
       setInvoiceFile(null);
+      localStorage.setItem("lastCheckout", JSON.stringify(res.data));
+      console.log("Checkout response:", res.data);
+
+
+      navigate("/checkout-success", { state: { checkoutResult: res.data } });
+  
     } catch (err) {
       console.error("Checkout error:", err);
       console.error(err.response?.data?.message || "Checkout failed");

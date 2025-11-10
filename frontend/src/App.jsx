@@ -6,6 +6,8 @@ import ChatPage from './pages/ChatPage';
 import TrackingPage from './pages/TrackingPage';
 import NotFoundPage from './pages/NotFoundPage';
 import CartPage from './pages/CartPage';
+import CheckoutSuccessPage from './pages/CheckoutSuccessPage';
+
 
 
 
@@ -20,6 +22,7 @@ function App() {
                     <Route path="/track/:id" element={<TrackingPage />} />
                     <Route path="*" element={<NotFoundPage />} />
                     <Route path="/chat/:groupId" element={<ChatPage />} />
+                    <Route path="/checkout-success" element={<CheckoutSuccessPage />} />
                 </Routes>
             </div>
         </Router>
